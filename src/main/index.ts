@@ -149,11 +149,14 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
         await logger.debug('Canvas module loaded successfully')
 
         const path = require('path')
+        const { pathToFileURL } = require('url')
 
         // Configure worker for ES module build
+        // On Windows, we need to convert the path to a file:// URL for ESM loader
         const workerPath = path.join(__dirname, '../../node_modules/pdfjs-dist/build/pdf.worker.mjs')
-        await logger.debug('PDF.js worker path', { workerPath })
-        pdfjsLib.GlobalWorkerOptions.workerSrc = workerPath
+        const workerUrl = pathToFileURL(workerPath).href
+        await logger.debug('PDF.js worker path', { workerPath, workerUrl })
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
         // Convert Buffer to Uint8Array for pdfjs-dist
         const uint8Array = new Uint8Array(buffer)

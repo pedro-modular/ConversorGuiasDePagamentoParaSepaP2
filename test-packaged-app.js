@@ -115,6 +115,19 @@ if (!hasPolyfills) {
   allPassed = false
 }
 
+console.log('\n--- Checking PDF.js Worker URL Fix ---\n')
+
+const hasPathToFileURL = mainContent.includes('pathToFileURL')
+const hasWorkerUrl = mainContent.includes('workerUrl')
+console.log('  - pathToFileURL import:', hasPathToFileURL ? '✅ YES' : '❌ NO')
+console.log('  - workerUrl conversion:', hasWorkerUrl ? '✅ YES' : '❌ NO')
+
+if (!hasPathToFileURL || !hasWorkerUrl) {
+  console.error('❌ WARNING: PDF.js worker URL fix might not be applied!')
+  console.error('   This will cause OCR to fail on Windows with "Only URLs with a scheme in: file" error')
+  allPassed = false
+}
+
 console.log('\n===== TEST SUMMARY =====\n')
 
 if (allPassed) {
