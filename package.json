@@ -38,6 +38,8 @@
       "node_modules/canvas/**/*",
       "node_modules/pdfjs-dist/**/*",
       "node_modules/tesseract.js/**/*",
+      "node_modules/tesseract.js-core/**/*",
+      "node_modules/@tesseract.js/**/*",
       "node_modules/@tesseract.js-data/**/*",
       "node_modules/pdf-parse/**/*",
       "**/*.node"
