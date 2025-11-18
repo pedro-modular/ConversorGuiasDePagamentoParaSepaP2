@@ -26,6 +26,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download Tesseract Portuguese Language Data
+        run: |
+          # Create the tessdata folder
+          if (!(Test-Path -Path ".\tessdata")) {
+            New-Item -ItemType Directory -Force -Path ".\tessdata"
+          }
+          # Download the Portuguese training data
+          $url = "https://github.com/naptha/tessdata/raw/gh-pages/4.0.0/por.traineddata.gz"
+          $output = ".\tessdata\por.traineddata.gz"
+          Write-Host "Downloading Portuguese language data..."
+          Invoke-WebRequest -Uri $url -OutFile $output
+          # Verify download
+          if (Test-Path $output) {
+            $size = (Get-Item $output).Length / 1MB
+            Write-Host "✓ Downloaded successfully: $output ($([math]::Round($size, 2)) MB)"
+          } else {
+            Write-Error "Failed to download language data"
+            exit 1
+          }
+        shell: pwsh
+
       - name: Build application
         run: npm run build
 

@@ -103,13 +103,41 @@ module.exports = async function (context) {
     console.log('  ⚠️  PDF OCR will be limited')
   }
 
+  // Verify tessdata folder in resources (primary language file location)
+  console.log('  Verifying tessdata in resources...')
+  const tessdataDir = path.join(resourcesDir, 'tessdata')
+  const tessdataLangFile = path.join(tessdataDir, 'por.traineddata.gz')
+
+  if (await fs.pathExists(tessdataLangFile)) {
+    const stats = await fs.stat(tessdataLangFile)
+    console.log(`  ✅ Tessdata language file found in resources (${Math.round(stats.size / 1024)} KB)`)
+  } else {
+    console.error('  ❌ WARNING: Tessdata language file NOT found in resources!')
+    console.error(`     Expected: ${tessdataLangFile}`)
+
+    // Try to copy from source tessdata folder
+    const sourceTessdata = path.join(__dirname, '..', 'tessdata')
+    if (await fs.pathExists(sourceTessdata)) {
+      console.log('  📦 Copying tessdata from source...')
+      await fs.copy(sourceTessdata, tessdataDir, { overwrite: true })
+      console.log('  ✅ Tessdata copied to resources')
+    } else {
+      console.error('  ❌ Source tessdata folder not found!')
+    }
+  }
+
   // Verify all Tesseract modules are unpacked
   console.log('  Verifying Tesseract modules...')
 
   const tesseractModules = [
     'tesseract.js',
     'tesseract.js-core',
-    '@tesseract.js-data'
+    'is-url',
+    'node-fetch',
+    'regenerator-runtime',
+    'bmp-js',
+    'zlibjs',
+    'wasm-feature-detect'
   ]
 
   for (const moduleName of tesseractModules) {
@@ -129,15 +157,6 @@ module.exports = async function (context) {
         console.error(`  ❌ Source ${moduleName} not found!`)
       }
     }
-  }
-
-  // Verify language file specifically
-  const langFilePath = path.join(appAsarUnpackedDir, 'node_modules', '@tesseract.js-data', 'por', '4.0.0', 'por.traineddata.gz')
-  if (await fs.pathExists(langFilePath)) {
-    const stats = await fs.stat(langFilePath)
-    console.log(`  ✅ Language file found (${Math.round(stats.size / 1024)} KB)`)
-  } else {
-    console.error('  ❌ WARNING: Language file NOT found!')
   }
 
   console.log('✅ afterPack hook completed')

@@ -85,3 +85,4 @@ builder-effective-config.yaml
 # Uncomment if using yarn or pnpm:
 # yarn.lock
 # pnpm-lock.yaml
+/tessdata

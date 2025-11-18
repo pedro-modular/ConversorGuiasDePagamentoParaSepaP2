@@ -222,30 +222,29 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
         await logger.info('Step 2: Running Tesseract OCR')
 
         try {
-          // Run OCR on the image with local language files
-          // Use bundled language files instead of downloading from internet
-          // This is critical for Windows compatibility
+          // Run OCR on the image with local language files from resources/tessdata
+          // Using extraResources instead of node_modules prevents permission issues on Windows
           const path = require('path')
 
           // Determine the correct path for language files
-          // In production (packaged), they're in app.asar.unpacked
-          // In development, they're in node_modules
+          // In production (packaged), they're in resources/tessdata (outside ASAR)
+          // In development, they're in project root/tessdata
           const isDev = process.env.NODE_ENV === 'development'
-          const langPath = isDev
-            ? path.join(__dirname, '../../node_modules/@tesseract.js-data')
-            : path.join(process.resourcesPath, 'app.asar.unpacked/node_modules/@tesseract.js-data')
+          const tessdataPath = isDev
+            ? path.join(__dirname, '../../tessdata')
+            : path.join(process.resourcesPath, 'tessdata')
 
           await logger.info('Tesseract configuration', {
             isDev,
-            langPath,
-            cachePath: app.getPath('userData'),
+            langPath: tessdataPath,
+            cachePath: tessdataPath,
             __dirname,
             resourcesPath: process.resourcesPath
           })
 
-          // Check if language files exist
+          // Check if language file exists
           try {
-            const langFileCheck = path.join(langPath, 'por', '4.0.0', 'por.traineddata.gz')
+            const langFileCheck = path.join(tessdataPath, 'por.traineddata.gz')
             await logger.debug('Checking for language file', { langFileCheck })
             const exists = await fs.access(langFileCheck).then(() => true).catch(() => false)
             await logger.info('Language file exists check', { langFileCheck, exists })
@@ -255,8 +254,9 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
 
           await logger.debug('Creating Tesseract worker...')
           const worker = await Tesseract.createWorker('por', 1, {
-            langPath: langPath,
-            cachePath: app.getPath('userData'),
+            langPath: tessdataPath,
+            cachePath: tessdataPath,
+            gzip: true,
             logger: async (m: any) => {
               if (m.status === 'recognizing text') {
                 await logger.debug(`OCR progress: ${Math.round(m.progress * 100)}%`)
