@@ -11,6 +11,8 @@ declare global {
         format?: ExportFormat
       ) => Promise<any>
       getAppVersion: () => Promise<string>
+      getLogPath: () => Promise<string>
+      openLogFile: () => Promise<{ success: boolean; path: string }>
     }
   }
 }

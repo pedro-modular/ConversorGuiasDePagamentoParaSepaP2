@@ -8,6 +8,7 @@ import { promises as fs } from 'fs'
 import { generateSepaXml } from './sepaGenerator'
 import { generatePS2 } from './ps2Generator'
 import { PaymentData, ExportFormat } from '../shared/types'
+import { logger } from './logger'
 
 // Use require for CommonJS modules in Electron
 // pdf-parse v1.1.1 uses simple default export
@@ -46,7 +47,18 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Initialize logger first
+  await logger.init()
+  await logger.info('Application starting')
+  await logger.info('Environment', {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version,
+    electronVersion: process.versions.electron,
+    isDev: process.env.NODE_ENV === 'development'
+  })
+
   createWindow()
 
   app.on('activate', () => {
@@ -68,6 +80,20 @@ ipcMain.handle('get-app-version', async () => {
   return app.getVersion()
 })
 
+ipcMain.handle('get-log-path', async () => {
+  // Return the path to the debug log file
+  return logger.getLogPath()
+})
+
+ipcMain.handle('open-log-file', async () => {
+  // Open the log file in the default text editor
+  const { shell } = require('electron')
+  const logPath = logger.getLogPath()
+  await logger.info('Opening log file', { logPath })
+  await shell.openPath(logPath)
+  return { success: true, path: logPath }
+})
+
 ipcMain.handle('select-pdf-files', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],
@@ -84,34 +110,49 @@ ipcMain.handle('select-pdf-files', async () => {
 })
 
 ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
+  await logger.section(`Processing PDF: ${filePath}`)
+
   try {
+    await logger.info('Reading PDF file')
     const buffer = await fs.readFile(filePath)
+    await logger.info('PDF file read successfully', { size: buffer.length })
     let text = ''
 
     // Try text extraction first
     try {
+      await logger.info('Attempting text extraction with pdf-parse')
       const data = await pdfParse(buffer)
       text = data.text || ''
-      console.log('📄 Text extraction result:', text.length, 'characters')
+      await logger.info('Text extraction result', {
+        characters: text.length,
+        preview: text.substring(0, 200)
+      })
     } catch (err) {
-      console.log('⚠️  Text extraction failed:', err)
+      await logger.warn('Text extraction failed', err)
     }
 
     // If no text found or very little text, use OCR
     if (text.trim().length < 50) {
-      console.log('🔍 No text found, using OCR...')
+      await logger.info('Text extraction insufficient, starting OCR process')
 
       try {
-        console.log('🖼️  Converting PDF to image...')
+        await logger.info('Step 1: Converting PDF to image')
 
         // Use dynamic import for pdfjs-dist ES module
+        await logger.debug('Importing pdfjs-dist module')
         const pdfjsLib = await import('pdfjs-dist')
+        await logger.debug('pdfjs-dist imported successfully')
+
+        await logger.debug('Loading canvas module')
         const canvasModule = require('canvas')
         const { createCanvas } = canvasModule
+        await logger.debug('Canvas module loaded successfully')
+
         const path = require('path')
 
         // Configure worker for ES module build
         const workerPath = path.join(__dirname, '../../node_modules/pdfjs-dist/build/pdf.worker.mjs')
+        await logger.debug('PDF.js worker path', { workerPath })
         pdfjsLib.GlobalWorkerOptions.workerSrc = workerPath
 
         // Convert Buffer to Uint8Array for pdfjs-dist
@@ -167,13 +208,15 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
         await page.render(renderContext).promise
 
         // Convert canvas to buffer for OCR
+        await logger.debug('Converting canvas to PNG buffer')
         const firstPage = canvas.toBuffer('image/png')
 
         if (!firstPage) {
           throw new Error('Não foi possível converter PDF para imagem')
         }
 
-        console.log('✅ PDF converted, running OCR...')
+        await logger.info('PDF converted to image successfully', { imageSize: firstPage.length })
+        await logger.info('Step 2: Running Tesseract OCR')
 
         try {
           // Run OCR on the image with local language files
@@ -189,45 +232,75 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
             ? path.join(__dirname, '../../node_modules/@tesseract.js-data')
             : path.join(process.resourcesPath, 'app.asar.unpacked/node_modules/@tesseract.js-data')
 
-          console.log('🔍 Using language path:', langPath)
+          await logger.info('Tesseract configuration', {
+            isDev,
+            langPath,
+            cachePath: app.getPath('userData'),
+            __dirname,
+            resourcesPath: process.resourcesPath
+          })
 
+          // Check if language files exist
+          try {
+            const langFileCheck = path.join(langPath, 'por', '4.0.0', 'por.traineddata.gz')
+            await logger.debug('Checking for language file', { langFileCheck })
+            const exists = await fs.access(langFileCheck).then(() => true).catch(() => false)
+            await logger.info('Language file exists check', { langFileCheck, exists })
+          } catch (checkErr) {
+            await logger.warn('Could not verify language file existence', checkErr)
+          }
+
+          await logger.debug('Creating Tesseract worker...')
           const worker = await Tesseract.createWorker('por', 1, {
             langPath: langPath,
             cachePath: app.getPath('userData'),
-            logger: (m: any) => {
+            logger: async (m: any) => {
               if (m.status === 'recognizing text') {
-                console.log(`OCR progress: ${Math.round(m.progress * 100)}%`)
+                await logger.debug(`OCR progress: ${Math.round(m.progress * 100)}%`)
               } else if (m.status) {
-                console.log(`OCR status: ${m.status}`)
+                await logger.debug(`OCR status: ${m.status}`, m)
               }
             }
           })
 
-          console.log('OCR worker created successfully')
+          await logger.info('Tesseract worker created successfully')
 
           // Set parameters for better accuracy
+          await logger.debug('Setting OCR parameters')
           await worker.setParameters({
             tessedit_pageseg_mode: Tesseract.PSM.AUTO,  // Auto page segmentation
             preserve_interword_spaces: '1'
           })
 
-          console.log('OCR parameters set, starting recognition...')
+          await logger.info('OCR parameters set, starting text recognition')
 
           const { data: { text: ocrText } } = await worker.recognize(firstPage)
 
-          console.log('OCR recognition complete, terminating worker...')
+          await logger.info('OCR recognition complete', { textLength: ocrText.length })
 
           await worker.terminate()
+          await logger.debug('Tesseract worker terminated')
 
           text = ocrText
-          console.log('✅ OCR completed:', text.length, 'characters')
+          await logger.info('OCR completed successfully', {
+            characters: text.length,
+            preview: text.substring(0, 200)
+          })
         } catch (tesseractError: any) {
-          console.error('❌ Tesseract OCR error:', tesseractError)
-          console.error('Stack trace:', tesseractError.stack)
+          await logger.error('Tesseract OCR error', {
+            message: tesseractError.message,
+            stack: tesseractError.stack,
+            name: tesseractError.name,
+            code: tesseractError.code
+          })
           throw new Error(`OCR failed: ${tesseractError.message || 'Unknown error during text recognition'}`)
         }
       } catch (ocrError: any) {
-        console.error('❌ OCR failed:', ocrError)
+        await logger.error('OCR process failed', {
+          message: ocrError.message,
+          stack: ocrError.stack,
+          name: ocrError.name
+        })
         // Pass through our custom error messages
         if (ocrError.message && ocrError.message.includes('elementos gráficos não suportados')) {
           throw ocrError

@@ -121,6 +121,13 @@ const App: React.FC = () => {
     setFiles([])
   }
 
+  const handleOpenLog = async () => {
+    const result = await window.electronAPI.openLogFile()
+    if (result.success) {
+      alert(`Log file aberto:\n${result.path}`)
+    }
+  }
+
   const successCount = files.filter(f => f.status === 'success').length
   const totalAmount = files
     .filter(f => f.status === 'success')
@@ -137,9 +144,27 @@ const App: React.FC = () => {
           </div>
           <p>Converta guias de pagamento PDF em ficheiros SEPA XML ou PS2</p>
         </div>
-        <a href="https://patrocinio.pt" target="_blank" rel="noopener noreferrer" className="company-link">
-          patrocinio.pt
-        </a>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <button
+            onClick={handleOpenLog}
+            className="btn-link"
+            title="Abrir ficheiro de debug logs"
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.3)',
+              color: 'white',
+              padding: '5px 10px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '12px'
+            }}
+          >
+            🐛 Debug Log
+          </button>
+          <a href="https://patrocinio.pt" target="_blank" rel="noopener noreferrer" className="company-link">
+            patrocinio.pt
+          </a>
+        </div>
       </header>
 
       <div className="content">

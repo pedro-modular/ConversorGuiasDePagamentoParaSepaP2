@@ -6,5 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   parsePdfFile: (filePath: string) => ipcRenderer.invoke('parse-pdf-file', filePath),
   generateAndSaveSepa: (payments: any[], defaultFileName: string, format?: ExportFormat) =>
     ipcRenderer.invoke('generate-and-save-sepa', payments, defaultFileName, format),
-  getAppVersion: () => ipcRenderer.invoke('get-app-version')
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getLogPath: () => ipcRenderer.invoke('get-log-path'),
+  openLogFile: () => ipcRenderer.invoke('open-log-file')
 })

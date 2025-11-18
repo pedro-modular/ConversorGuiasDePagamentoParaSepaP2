@@ -32,6 +32,28 @@ jobs:
       - name: Run tests
         run: npm run test:packaged
 
+      - name: Capture debug logs (if exist)
+        if: always()
+        continue-on-error: true
+        run: |
+          $logPath = "$env:APPDATA\guiasdepagamentosepa\debug.log"
+          if (Test-Path $logPath) {
+            Write-Host "Debug log found at: $logPath"
+            Get-Content $logPath
+            Copy-Item $logPath debug-log.txt
+          } else {
+            Write-Host "No debug log found at: $logPath"
+          }
+        shell: pwsh
+
+      - name: Upload debug logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs
+          path: debug-log.txt
+          if-no-files-found: ignore
+
       - name: Package for Windows
         run: npm run package:win
 
