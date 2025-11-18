@@ -103,5 +103,29 @@ module.exports = async function (context) {
     console.log('  ⚠️  PDF OCR will be limited')
   }
 
+  // Verify Tesseract language files are unpacked
+  console.log('  Verifying Tesseract language files...')
+  const tesseractDataDir = path.join(appAsarUnpackedDir, 'node_modules', '@tesseract.js-data', 'por', '4.0.0')
+  const langFilePath = path.join(tesseractDataDir, 'por.traineddata.gz')
+
+  if (await fs.pathExists(langFilePath)) {
+    const stats = await fs.stat(langFilePath)
+    console.log(`  ✅ Tesseract language file found (${Math.round(stats.size / 1024)} KB)`)
+  } else {
+    console.error('  ❌ WARNING: Tesseract language file NOT found!')
+    console.error(`     Expected: ${langFilePath}`)
+
+    // Try to copy it manually from source
+    const sourceDir = path.join(__dirname, '..', 'node_modules', '@tesseract.js-data')
+    if (await fs.pathExists(sourceDir)) {
+      console.log('  📦 Copying Tesseract language files from source...')
+      const targetDir = path.join(appAsarUnpackedDir, 'node_modules', '@tesseract.js-data')
+      await fs.copy(sourceDir, targetDir, { overwrite: true })
+      console.log('  ✅ Tesseract language files copied')
+    } else {
+      console.error('  ❌ Source language files not found!')
+    }
+  }
+
   console.log('✅ afterPack hook completed')
 }
