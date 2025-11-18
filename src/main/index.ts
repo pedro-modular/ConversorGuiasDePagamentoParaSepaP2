@@ -312,26 +312,38 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
       }
     }
 
-    // DEBUG: Log extracted text to console
-    console.log('===== EXTRACTED TEXT (FINAL) =====')
-    console.log(text)
-    console.log('===== END TEXT =====')
+    // Log extraction start
+    await logger.info('Starting data extraction from text', { totalCharacters: text.length })
 
     // Extract document number (appears as "8067 1478311" or similar)
     const documentNumberMatch = text.match(/NÚMERO DO DOCUMENTO[\s\S]*?(\d+\s+\d+)/i) ||
                                 text.match(/Documento\s+n[ºo°]?\s*:?\s*(\d+)/i)
     const documentNumber = documentNumberMatch ? documentNumberMatch[1].trim() : ''
+    await logger.info('Extraction: Document number', {
+      found: !!documentNumberMatch,
+      value: documentNumber || '(não encontrado)'
+    })
 
     // Extract NIF (9-digit number, may appear under "NÚMERO DE IDENTIFICAÇÃO FISCAL")
-    const nifMatch = text.match(/NÚMERO DE IDENTIFICAÇÃO FISCAL[\s\S]*?(\d{9})/i) ||
-                     text.match(/NIF\s*:?\s*(\d{9})/i) ||
-                     text.match(/\b(\d{9})\b/)
+    const nifPattern1 = text.match(/NÚMERO DE IDENTIFICAÇÃO FISCAL[\s\S]*?(\d{9})/i)
+    const nifPattern2 = text.match(/NIF\s*:?\s*(\d{9})/i)
+    const nifPattern3 = text.match(/\b(\d{9})\b/)
+    const nifMatch = nifPattern1 || nifPattern2 || nifPattern3
     const nif = nifMatch ? nifMatch[1] : ''
+    await logger.info('Extraction: NIF', {
+      found: !!nifMatch,
+      value: nif || '(não encontrado)',
+      patternUsed: nifPattern1 ? 'NÚMERO DE IDENTIFICAÇÃO FISCAL' : nifPattern2 ? 'NIF:' : nifPattern3 ? 'any 9-digit' : 'none'
+    })
 
     // Extract taxpayer name (appears under "NOME" header or after NIF)
     const taxpayerMatch = text.match(/NOME[\s\S]*?([A-ZÀ-Ú][A-ZÀ-Ú\s,.-]+(?:LDA|SA|UNIPESSOAL)?)/i) ||
                          text.match(/Nome\s*:?\s*([A-ZÀ-Ú\s,.-]+?)(?=\s*NIF|$)/i)
     const taxpayerName = taxpayerMatch ? taxpayerMatch[1].trim() : ''
+    await logger.info('Extraction: Taxpayer name', {
+      found: !!taxpayerMatch,
+      value: taxpayerName || '(não encontrado)'
+    })
 
     // Extract payment reference (15-digit number with dots like 156.080.671.478.311)
     const referenceMatch = text.match(/(\d{3}[.\s]\d{3}[.\s]\d{3}[.\s]\d{3}[.\s]\d{3})/i)
@@ -339,35 +351,42 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
     if (referenceMatch) {
       paymentReference = referenceMatch[1].replace(/[\s.]/g, '').trim()
     }
+    await logger.info('Extraction: Payment reference', {
+      found: !!referenceMatch,
+      rawMatch: referenceMatch ? referenceMatch[1] : '(não encontrado)',
+      cleanedValue: paymentReference || '(não encontrado)',
+      expectedFormat: 'XXX.XXX.XXX.XXX.XXX'
+    })
 
     // Extract entity
     const entity = paymentReference.substring(0, 3)
 
-    // DEBUG: Log extracted values
-    console.log('===== EXTRACTED VALUES =====')
-    console.log('Document Number:', documentNumber)
-    console.log('NIF:', nif)
-    console.log('Taxpayer Name:', taxpayerName)
-    console.log('Payment Reference:', paymentReference)
-    console.log('Entity:', entity)
-
     // Extract amount (appears as "€ 110,40" or "VALOR A PAGAR 110,40")
-    const amountMatch = text.match(/VALOR A PAGAR\s+([\d.,]+)/i) ||
-                        text.match(/Importância a pagar[\s\S]*?€\s*([\d.,]+)/i) ||
-                        text.match(/€\s*([\d.,]+)/i) ||
-                        text.match(/Total\s*:?\s*€?\s*([\d.,]+)/i)
+    const amountPattern1 = text.match(/VALOR A PAGAR\s+([\d.,]+)/i)
+    const amountPattern2 = text.match(/Importância a pagar[\s\S]*?€\s*([\d.,]+)/i)
+    const amountPattern3 = text.match(/€\s*([\d.,]+)/i)
+    const amountPattern4 = text.match(/Total\s*:?\s*€?\s*([\d.,]+)/i)
+    const amountMatch = amountPattern1 || amountPattern2 || amountPattern3 || amountPattern4
     let amount = 0
     if (amountMatch) {
       const amountStr = amountMatch[1].replace(/\./g, '').replace(',', '.')
       amount = parseFloat(amountStr)
     }
-
-    console.log('Amount:', amount)
+    await logger.info('Extraction: Amount', {
+      found: !!amountMatch,
+      rawMatch: amountMatch ? amountMatch[1] : '(não encontrado)',
+      parsedValue: amount,
+      patternUsed: amountPattern1 ? 'VALOR A PAGAR' : amountPattern2 ? 'Importância €' : amountPattern3 ? '€' : amountPattern4 ? 'Total' : 'none'
+    })
 
     // Extract due date
     const dueDateMatch = text.match(/Data\s+limite\s+de\s+pagamento\s*:?\s*(\d{4}[-\/]\d{2}[-\/]\d{2})/i) ||
                          text.match(/Data\s+limite\s*:?\s*(\d{4}[-\/]\d{2}[-\/]\d{2})/i)
     const dueDate = dueDateMatch ? dueDateMatch[1] : ''
+    await logger.info('Extraction: Due date', {
+      found: !!dueDateMatch,
+      value: dueDate || '(não encontrado)'
+    })
 
     // Extract tax code
     const taxCodeMatch = text.match(/C[óo]digo\s+do\s+imposto\s*:?\s*(\d{3})/i)
@@ -377,10 +396,48 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
     const periodMatch = text.match(/Per[íi]odo\s*:?\s*(\d{4}\s*[\/\-]\s*\w+)/i)
     const period = periodMatch ? periodMatch[1].trim() : ''
 
-    // Validate essential data
-    if (!paymentReference || !amount || !nif) {
-      throw new Error('Não foi possível extrair dados essenciais do PDF. Verifique se o formato está correto.')
+    // Check for missing essential fields
+    const missingFields: string[] = []
+    if (!paymentReference) missingFields.push('Referência de pagamento')
+    if (!amount) missingFields.push('Valor a pagar')
+    if (!nif) missingFields.push('NIF')
+
+    // Log extraction summary
+    await logger.info('Extraction summary', {
+      documentNumber: documentNumber || '(não encontrado)',
+      nif: nif || '(não encontrado)',
+      taxpayerName: taxpayerName || '(não encontrado)',
+      paymentReference: paymentReference || '(não encontrado)',
+      entity: entity || '(não encontrado)',
+      amount: amount || 0,
+      dueDate: dueDate || '(não encontrado)',
+      missingFields: missingFields.length > 0 ? missingFields : 'none'
+    })
+
+    // If essential fields are missing, return partial data for manual review
+    if (missingFields.length > 0) {
+      await logger.warn('Essential fields missing - needs manual review', { missingFields })
+      return {
+        success: false,
+        needsReview: true,
+        missingFields,
+        extractedText: text,
+        data: {
+          documentNumber,
+          nif,
+          taxpayerName,
+          paymentReference,
+          entity,
+          amount,
+          dueDate,
+          taxCode,
+          period
+        },
+        error: `Campos em falta: ${missingFields.join(', ')}`
+      }
     }
+
+    await logger.info('All essential data extracted successfully')
 
     return {
       success: true,

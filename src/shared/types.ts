@@ -9,8 +9,9 @@ export interface PaymentData {
   dueDate: string
   taxCode: string
   period: string
-  status: 'pending' | 'processing' | 'success' | 'error'
+  status: 'pending' | 'processing' | 'success' | 'error' | 'needs_review'
   error?: string
+  extractedText?: string  // Raw OCR text for manual review
 }
 
 export interface ParsedPaymentData {
@@ -25,12 +26,24 @@ export interface ParsedPaymentData {
   period: string
 }
 
+export interface ParseResult {
+  success: boolean
+  data?: ParsedPaymentData
+  error?: string
+  needsReview?: boolean
+  missingFields?: string[]
+  extractedText?: string
+}
+
 export type ExportFormat = 'SEPA' | 'PS2'
 
 export interface ElectronAPI {
   selectPdfFiles: () => Promise<string[]>
-  parsePdfFile: (filePath: string) => Promise<{ success: boolean; data?: ParsedPaymentData; error?: string }>
+  parsePdfFile: (filePath: string) => Promise<ParseResult>
   generateAndSaveSepa: (payments: PaymentData[], defaultFileName: string, format?: ExportFormat) => Promise<{ success: boolean; filePath?: string; error?: string }>
+  getAppVersion: () => Promise<string>
+  openLogFile: () => Promise<{ success: boolean; path: string }>
+  getLogPath: () => Promise<string>
 }
 
 declare global {

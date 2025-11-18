@@ -2,10 +2,162 @@ import React, { useState, useRef, useEffect } from 'react'
 import { PaymentData, ExportFormat } from '../shared/types'
 import logo from './assets/patrocinio-logo-white.png'
 
+// Modal component for manual field editing
+interface EditModalProps {
+  file: PaymentData
+  onSave: (updatedFile: PaymentData) => void
+  onCancel: () => void
+}
+
+const EditModal: React.FC<EditModalProps> = ({ file, onSave, onCancel }) => {
+  const [formData, setFormData] = useState({
+    nif: file.nif,
+    taxpayerName: file.taxpayerName,
+    paymentReference: file.paymentReference,
+    amount: file.amount.toString(),
+    dueDate: file.dueDate,
+    documentNumber: file.documentNumber
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Clean payment reference (remove dots and spaces)
+    const cleanedReference = formData.paymentReference.replace(/[\s.]/g, '')
+
+    onSave({
+      ...file,
+      nif: formData.nif.trim(),
+      taxpayerName: formData.taxpayerName.trim(),
+      paymentReference: cleanedReference,
+      entity: cleanedReference.substring(0, 3),
+      amount: parseFloat(formData.amount.replace(',', '.')) || 0,
+      dueDate: formData.dueDate.trim(),
+      documentNumber: formData.documentNumber.trim(),
+      status: 'success',
+      error: undefined
+    })
+  }
+
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Completar Dados - {file.fileName}</h2>
+          <button className="modal-close" onClick={onCancel}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <div className="form-section">
+              <h3>Campos Extraídos</h3>
+              <p className="form-hint">Preencha ou corrija os campos em falta (marcados a vermelho)</p>
+
+              <div className="form-grid">
+                <div className={`form-group ${!formData.nif ? 'missing' : ''}`}>
+                  <label>NIF *</label>
+                  <input
+                    type="text"
+                    value={formData.nif}
+                    onChange={e => handleChange('nif', e.target.value)}
+                    placeholder="123456789"
+                    maxLength={9}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Nome</label>
+                  <input
+                    type="text"
+                    value={formData.taxpayerName}
+                    onChange={e => handleChange('taxpayerName', e.target.value)}
+                    placeholder="Nome do contribuinte"
+                  />
+                </div>
+
+                <div className={`form-group ${!formData.paymentReference ? 'missing' : ''}`}>
+                  <label>Referência de Pagamento *</label>
+                  <input
+                    type="text"
+                    value={formData.paymentReference}
+                    onChange={e => handleChange('paymentReference', e.target.value)}
+                    placeholder="156.080.671.478.311"
+                  />
+                </div>
+
+                <div className={`form-group ${!formData.amount || formData.amount === '0' ? 'missing' : ''}`}>
+                  <label>Valor a Pagar (€) *</label>
+                  <input
+                    type="text"
+                    value={formData.amount}
+                    onChange={e => handleChange('amount', e.target.value)}
+                    placeholder="110,40"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Data Limite</label>
+                  <input
+                    type="text"
+                    value={formData.dueDate}
+                    onChange={e => handleChange('dueDate', e.target.value)}
+                    placeholder="2025-01-20"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Nº Documento</label>
+                  <input
+                    type="text"
+                    value={formData.documentNumber}
+                    onChange={e => handleChange('documentNumber', e.target.value)}
+                    placeholder="8067 1478311"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {file.extractedText && (
+              <div className="form-section">
+                <h3>Texto Extraído (OCR)</h3>
+                <p className="form-hint">Consulte o texto extraído para encontrar os valores em falta</p>
+                <textarea
+                  className="ocr-text"
+                  readOnly
+                  value={file.extractedText}
+                  rows={10}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onCancel}>
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={!formData.nif || !formData.paymentReference || !formData.amount || formData.amount === '0'}
+            >
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 const App: React.FC = () => {
   const [files, setFiles] = useState<PaymentData[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [appVersion, setAppVersion] = useState<string>('...')
+  const [editingFile, setEditingFile] = useState<{ index: number; file: PaymentData } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load app version from package.json (single source of truth)
@@ -53,6 +205,19 @@ const App: React.FC = () => {
           }
           return updated
         })
+      } else if (result.needsReview && result.data) {
+        // Partial extraction - needs manual review
+        setFiles(prev => {
+          const updated = [...prev]
+          updated[fileIndex] = {
+            ...updated[fileIndex],
+            ...result.data,
+            status: 'needs_review',
+            error: result.error || 'Campos em falta',
+            extractedText: result.extractedText
+          }
+          return updated
+        })
       } else {
         setFiles(prev => {
           const updated = [...prev]
@@ -65,6 +230,25 @@ const App: React.FC = () => {
         })
       }
     }
+  }
+
+  const handleEditFile = (index: number) => {
+    setEditingFile({ index, file: files[index] })
+  }
+
+  const handleSaveEdit = (updatedFile: PaymentData) => {
+    if (editingFile) {
+      setFiles(prev => {
+        const updated = [...prev]
+        updated[editingFile.index] = updatedFile
+        return updated
+      })
+      setEditingFile(null)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingFile(null)
   }
 
   const handleSelectFiles = async () => {
@@ -213,7 +397,17 @@ const App: React.FC = () => {
                           {file.status === 'processing' && 'A processar...'}
                           {file.status === 'success' && 'Sucesso'}
                           {file.status === 'error' && 'Erro'}
+                          {file.status === 'needs_review' && 'Revisão'}
                         </span>
+                        {file.status === 'needs_review' && (
+                          <button
+                            className="btn-edit"
+                            onClick={() => handleEditFile(index)}
+                            title="Completar dados manualmente"
+                          >
+                            ✏️ Editar
+                          </button>
+                        )}
                         {file.error && <div className="error-message">{file.error}</div>}
                       </td>
                     </tr>
@@ -259,6 +453,15 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Modal for editing files that need review */}
+      {editingFile && (
+        <EditModal
+          file={editingFile.file}
+          onSave={handleSaveEdit}
+          onCancel={handleCancelEdit}
+        />
+      )}
     </div>
   )
 }
