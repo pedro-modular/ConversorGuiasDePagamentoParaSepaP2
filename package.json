@@ -29,6 +29,7 @@
   "build": {
     "appId": "pt.patrocinio.guiaspagamento",
     "productName": "Guias de Pagamento SEPA - Patrocínio",
+    "publish": null,
     "directories": {
       "output": "release"
     },
