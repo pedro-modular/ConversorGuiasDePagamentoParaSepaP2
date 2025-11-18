@@ -171,9 +171,23 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
         console.log('✅ PDF converted, running OCR...')
 
         try {
-          // Run OCR on the image with local paths and better settings
+          // Run OCR on the image with local language files
+          // Use bundled language files instead of downloading from internet
+          // This is critical for Windows compatibility
+          const path = require('path')
+
+          // Determine the correct path for language files
+          // In production (packaged), they're in app.asar.unpacked
+          // In development, they're in node_modules
+          const isDev = process.env.NODE_ENV === 'development'
+          const langPath = isDev
+            ? path.join(__dirname, '../../node_modules/@tesseract.js-data')
+            : path.join(process.resourcesPath, 'app.asar.unpacked/node_modules/@tesseract.js-data')
+
+          console.log('🔍 Using language path:', langPath)
+
           const worker = await Tesseract.createWorker('por', 1, {
-            langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+            langPath: langPath,
             cachePath: app.getPath('userData'),
             logger: (m: any) => {
               if (m.status === 'recognizing text') {
