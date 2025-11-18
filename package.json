@@ -1,0 +1,129 @@
+{
+  "name": "guiasdepagamentosepa",
+  "productName": "Guias de Pagamento SEPA",
+  "version": "1.0.8",
+  "description": "Aplicação para converter guias de pagamento PDF em ficheiros SEPA XML ou PS2",
+  "main": "out/main/index.js",
+  "author": "Pedro Seco <pedro@modular-studio.com>",
+  "homepage": "https://github.com/pedro-modular/ConversorGuiasDePagamentoParaSepaP2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pedro-modular/ConversorGuiasDePagamentoParaSepaP2.git"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "test:packaged": "node test-packaged-app.js",
+    "test:build": "npm run build && npm run test:packaged",
+    "package": "npm run test:build && electron-builder",
+    "package:mac": "npm run test:build && electron-builder --mac",
+    "package:win": "npm run test:build && electron-builder --win",
+    "package:linux": "npm run test:build && electron-builder --linux",
+    "icons": "node build/create-icon-set.js && node build/convert-icon.js",
+    "release:patch": "npm version patch && npm run package",
+    "release:minor": "npm version minor && npm run package",
+    "release:major": "npm version major && npm run package"
+  },
+  "build": {
+    "appId": "pt.patrocinio.guiaspagamento",
+    "productName": "Guias de Pagamento SEPA - Patrocínio",
+    "directories": {
+      "output": "release"
+    },
+    "afterPack": "build/afterPack.js",
+    "asarUnpack": [
+      "node_modules/canvas/**/*",
+      "node_modules/pdfjs-dist/**/*",
+      "node_modules/tesseract.js/**/*",
+      "node_modules/pdf-parse/**/*",
+      "**/*.node"
+    ],
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 110,
+          "y": 150
+        },
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerLanguages": [
+        "pt_PT"
+      ],
+      "language": "2070",
+      "unicode": true,
+      "deleteAppDataOnUninstall": true,
+      "runAfterFinish": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "differentialPackage": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "extraMetadata": {
+      "main": "out/main/index.js"
+    }
+  },
+  "keywords": [
+    "sepa",
+    "pdf",
+    "pagamento",
+    "portugal"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "electron": "^39.2.1",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.1",
+    "fs-extra": "^11.2.0",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2"
+  },
+  "dependencies": {
+    "canvas": "^3.2.0",
+    "pdf-parse": "^1.1.1",
+    "pdf-to-img": "^5.0.0",
+    "pdfjs-dist": "4.0.379",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tesseract.js": "^6.0.1",
+    "xml-js": "^1.6.11"
+  },
+  "overrides": {
+    "canvas": "^3.2.0"
+  }
+}
