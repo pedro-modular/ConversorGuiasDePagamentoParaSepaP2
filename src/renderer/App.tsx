@@ -1,13 +1,17 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { PaymentData, ExportFormat } from '../shared/types'
 import logo from './assets/patrocinio-logo-white.png'
-
-const APP_VERSION = '1.0.1'
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<PaymentData[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [appVersion, setAppVersion] = useState<string>('...')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Load app version from package.json (single source of truth)
+  useEffect(() => {
+    window.electronAPI.getAppVersion().then(setAppVersion)
+  }, [])
 
   const handleFileSelect = async (filePaths: string[]) => {
     const newFiles: PaymentData[] = filePaths.map(path => ({
@@ -129,7 +133,7 @@ const App: React.FC = () => {
         <div className="header-content">
           <div className="header-info">
             <h1>Guias de Pagamento SEPA</h1>
-            <span className="version">v{APP_VERSION}</span>
+            <span className="version">v{appVersion}</span>
           </div>
           <p>Converta guias de pagamento PDF em ficheiros SEPA XML ou PS2</p>
         </div>

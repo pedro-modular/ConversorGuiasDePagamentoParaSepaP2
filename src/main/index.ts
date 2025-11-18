@@ -63,6 +63,11 @@ app.on('window-all-closed', () => {
 })
 
 // IPC Handlers
+ipcMain.handle('get-app-version', async () => {
+  // Read version from package.json (single source of truth)
+  return app.getVersion()
+})
+
 ipcMain.handle('select-pdf-files', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],
