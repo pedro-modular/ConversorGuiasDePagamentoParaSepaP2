@@ -289,6 +289,10 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
             characters: text.length,
             preview: text.substring(0, 200)
           })
+          // Log full OCR text for debugging
+          await logger.debug('Full OCR text', {
+            fullText: text
+          })
         } catch (tesseractError: any) {
           await logger.error('Tesseract OCR error', {
             message: tesseractError.message,
@@ -325,19 +329,41 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
     })
 
     // Extract NIF (9-digit number, may appear under "NÚMERO DE IDENTIFICAÇÃO FISCAL")
-    const nifPattern1 = text.match(/NÚMERO DE IDENTIFICAÇÃO FISCAL[\s\S]*?(\d{9})/i)
-    const nifPattern2 = text.match(/NIF\s*:?\s*(\d{9})/i)
-    const nifPattern3 = text.match(/\b(\d{9})\b/)
-    const nifMatch = nifPattern1 || nifPattern2 || nifPattern3
-    const nif = nifMatch ? nifMatch[1] : ''
+    // The NIF is exactly 9 digits - must not be part of a longer number
+    const nifPattern1 = text.match(/NÚMERO DE IDENTIFICAÇÃO FISCAL[\s\S]*?\b(\d{9})\b(?!\d)/i)
+    const nifPattern2 = text.match(/NIF\s*:?\s*(\d{9})\b/i)
+    // Find all 9-digit numbers that are not part of longer numbers
+    const allNineDigitNumbers = text.match(/\b(\d{9})\b(?!\d)/g)
+    // Filter to get only standalone 9-digit numbers (not part of 10+ digit numbers)
+    let nif = ''
+    if (nifPattern1) {
+      nif = nifPattern1[1]
+    } else if (nifPattern2) {
+      nif = nifPattern2[1]
+    } else if (allNineDigitNumbers) {
+      // Find a 9-digit number that's not just the first 9 of a longer number
+      // by checking if it appears as a standalone number in the text
+      for (const num of allNineDigitNumbers) {
+        // Check if this is truly a standalone 9-digit number
+        const standalonePattern = new RegExp(`\\b${num}\\b(?!\\d)`)
+        if (standalonePattern.test(text)) {
+          nif = num
+          break
+        }
+      }
+    }
+    const nifMatch = nif ? true : false
     await logger.info('Extraction: NIF', {
-      found: !!nifMatch,
+      found: nifMatch,
       value: nif || '(não encontrado)',
-      patternUsed: nifPattern1 ? 'NÚMERO DE IDENTIFICAÇÃO FISCAL' : nifPattern2 ? 'NIF:' : nifPattern3 ? 'any 9-digit' : 'none'
+      patternUsed: nifPattern1 ? 'NÚMERO DE IDENTIFICAÇÃO FISCAL' : nifPattern2 ? 'NIF:' : allNineDigitNumbers ? 'standalone 9-digit' : 'none'
     })
 
     // Extract taxpayer name (appears under "NOME" header or after NIF)
-    const taxpayerMatch = text.match(/NOME[\s\S]*?([A-ZÀ-Ú][A-ZÀ-Ú\s,.-]+(?:LDA|SA|UNIPESSOAL)?)/i) ||
+    // Look for company names ending with LDA, SA, UNIPESSOAL, etc.
+    // Must start with uppercase and be mostly uppercase (company names)
+    const taxpayerMatch = text.match(/\b([A-ZÀ-Ú][A-ZÀ-Ú\s,.-]+(?:LDA|LIMITADA|SA|UNIPESSOAL|S\.A\.))\b/) ||
+                         text.match(/NOME\s*\n+\s*([A-ZÀ-Ú][A-ZÀ-Ú\s,.-]+)/i) ||
                          text.match(/Nome\s*:?\s*([A-ZÀ-Ú\s,.-]+?)(?=\s*NIF|$)/i)
     const taxpayerName = taxpayerMatch ? taxpayerMatch[1].trim() : ''
     await logger.info('Extraction: Taxpayer name', {
@@ -345,17 +371,39 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
       value: taxpayerName || '(não encontrado)'
     })
 
-    // Extract payment reference (15-digit number with dots like 156.080.671.478.311)
+    // Extract payment reference (15-digit number with dots like 156.280.671.432.788)
+    // Primary pattern: with separators (dots or spaces) - strict format
     const referenceMatch = text.match(/(\d{3}[.\s]\d{3}[.\s]\d{3}[.\s]\d{3}[.\s]\d{3})/i)
+    // Fallback pattern: 15 consecutive digits without separators
+    const referenceMatch2 = text.match(/\b(\d{15})\b/)
+    // Fallback pattern: Look for "Referência para pagamento" followed by digits with any separators
+    // This handles OCR errors where dots become spaces or digits get split
+    const referenceMatch3 = text.match(/Refer[êe]ncia\s+para\s+pagamento[\s\S]*?([\d\s.]{15,25})/i)
+    // Fallback pattern: Look for any sequence that looks like a reference (digits with dots/spaces, 15+ chars)
+    const referenceMatch4 = text.match(/(\d{2,3}[.\s]\d{2,3}[.\s]\d{2,3}[.\s]\d{2,3}[.\s]\d{2,3})/i)
+
     let paymentReference = ''
     if (referenceMatch) {
       paymentReference = referenceMatch[1].replace(/[\s.]/g, '').trim()
+    } else if (referenceMatch2) {
+      paymentReference = referenceMatch2[1]
+    } else if (referenceMatch3) {
+      // Clean and extract only digits
+      paymentReference = referenceMatch3[1].replace(/[^\d]/g, '').trim()
+    } else if (referenceMatch4) {
+      paymentReference = referenceMatch4[1].replace(/[\s.]/g, '').trim()
+    }
+
+    // Ensure we have exactly 15 digits
+    if (paymentReference && paymentReference.length !== 15) {
+      paymentReference = ''  // Invalid reference, clear it
     }
     await logger.info('Extraction: Payment reference', {
-      found: !!referenceMatch,
-      rawMatch: referenceMatch ? referenceMatch[1] : '(não encontrado)',
+      found: !!(referenceMatch || referenceMatch2 || referenceMatch3 || referenceMatch4),
+      rawMatch: referenceMatch ? referenceMatch[1] : referenceMatch2 ? referenceMatch2[1] : referenceMatch3 ? referenceMatch3[1] : referenceMatch4 ? referenceMatch4[1] : '(não encontrado)',
       cleanedValue: paymentReference || '(não encontrado)',
-      expectedFormat: 'XXX.XXX.XXX.XXX.XXX'
+      expectedFormat: 'XXX.XXX.XXX.XXX.XXX',
+      patternUsed: referenceMatch ? 'with separators' : referenceMatch2 ? '15 consecutive digits' : referenceMatch3 ? 'Referência para pagamento' : referenceMatch4 ? 'Referência label' : 'none'
     })
 
     // Extract entity
@@ -470,8 +518,8 @@ ipcMain.handle('generate-and-save-sepa', async (_event, payments: PaymentData[],
     if (format === 'PS2') {
       // Generate PS2 format
       content = generatePS2(payments)
-      fileExtension = 'ps2'
-      fileTypeName = 'PS2 Files'
+      fileExtension = 'txt'
+      fileTypeName = 'Text Files'
     } else {
       // Generate SEPA XML format
       content = generateSepaXml(payments)
