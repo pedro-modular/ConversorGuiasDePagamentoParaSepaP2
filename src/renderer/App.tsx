@@ -2,6 +2,116 @@ import React, { useState, useRef, useEffect } from 'react'
 import { PaymentData, ExportFormat } from '../shared/types'
 import logo from './assets/patrocinio-logo-white.png'
 
+// PS2 Configuration interface
+interface PS2Config {
+  debtorNIB: string
+  executionDate: string
+}
+
+// Modal component for PS2 configuration
+interface PS2ConfigModalProps {
+  onSave: (config: PS2Config) => void
+  onCancel: () => void
+}
+
+const PS2ConfigModal: React.FC<PS2ConfigModalProps> = ({ onSave, onCancel }) => {
+  const [formData, setFormData] = useState({
+    debtorNIB: '',
+    executionDate: new Date().toISOString().split('T')[0]
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Validate NIB (should be 21 digits)
+    const cleanNIB = formData.debtorNIB.replace(/\s/g, '')
+    if (cleanNIB.length < 21) {
+      alert('NIB deve ter 21 dígitos')
+      return
+    }
+
+    onSave({
+      debtorNIB: cleanNIB,
+      executionDate: formData.executionDate
+    })
+  }
+
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const formatNIB = (value: string) => {
+    // Remove non-digits
+    const digits = value.replace(/\D/g, '')
+    // Format as XXXX XXXX XXXXXXXXXXXXX (4-4-13)
+    let formatted = digits
+    if (digits.length > 4) {
+      formatted = digits.substring(0, 4) + ' ' + digits.substring(4)
+    }
+    if (digits.length > 8) {
+      formatted = digits.substring(0, 4) + ' ' + digits.substring(4, 8) + ' ' + digits.substring(8)
+    }
+    return formatted.substring(0, 25) // Max length with spaces
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Configuração PS2</h2>
+          <button className="modal-close" onClick={onCancel}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <div className="form-section">
+              <p className="form-hint">Insira o NIB da conta bancária que será utilizada para os pagamentos</p>
+
+              <div className="form-grid">
+                <div className="form-group full-width">
+                  <label>NIB (Número de Identificação Bancária) *</label>
+                  <input
+                    type="text"
+                    value={formatNIB(formData.debtorNIB)}
+                    onChange={e => handleChange('debtorNIB', e.target.value.replace(/\s/g, ''))}
+                    placeholder="0033 0000 4525 3073 21705"
+                    maxLength={25}
+                    autoFocus
+                  />
+                  <small className="form-help">21 dígitos (ex: 0033 0000 4525 3073 21705)</small>
+                </div>
+
+                <div className="form-group full-width">
+                  <label>Data de Execução *</label>
+                  <input
+                    type="date"
+                    value={formData.executionDate}
+                    onChange={e => handleChange('executionDate', e.target.value)}
+                  />
+                  <small className="form-help">Data em que os pagamentos serão processados</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onCancel}>
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={formData.debtorNIB.replace(/\s/g, '').length < 21}
+            >
+              Gerar PS2
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // Modal component for manual field editing
 interface EditModalProps {
   file: PaymentData
@@ -158,6 +268,7 @@ const App: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false)
   const [appVersion, setAppVersion] = useState<string>('...')
   const [editingFile, setEditingFile] = useState<{ index: number; file: PaymentData } | null>(null)
+  const [showPS2Config, setShowPS2Config] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load app version from package.json (single source of truth)
@@ -289,8 +400,15 @@ const App: React.FC = () => {
       return
     }
 
-    const filePrefix = format === 'PS2' ? 'PS2' : 'SEPA'
-    const fileExtension = format === 'PS2' ? 'ps2' : 'xml'
+    // For PS2, show configuration dialog first
+    if (format === 'PS2') {
+      setShowPS2Config(true)
+      return
+    }
+
+    // For SEPA, generate directly
+    const filePrefix = 'SEPA'
+    const fileExtension = 'xml'
     const defaultFileName = `${filePrefix}_${new Date().toISOString().split('T')[0]}.${fileExtension}`
     const result = await window.electronAPI.generateAndSaveSepa(successfulFiles, defaultFileName, format)
 
@@ -299,6 +417,30 @@ const App: React.FC = () => {
     } else {
       alert(`Erro ao gerar ficheiro ${format}: ` + (result.error || 'Erro desconhecido'))
     }
+  }
+
+  const handlePS2ConfigSave = async (config: PS2Config) => {
+    setShowPS2Config(false)
+
+    const successfulFiles = files.filter(f => f.status === 'success')
+    const defaultFileName = `PS2_${new Date().toISOString().split('T')[0]}.ps2`
+
+    const result = await window.electronAPI.generateAndSaveSepa(
+      successfulFiles,
+      defaultFileName,
+      'PS2',
+      config
+    )
+
+    if (result.success) {
+      alert(`Ficheiro PS2 guardado com sucesso!\n${result.filePath}`)
+    } else {
+      alert(`Erro ao gerar ficheiro PS2: ` + (result.error || 'Erro desconhecido'))
+    }
+  }
+
+  const handlePS2ConfigCancel = () => {
+    setShowPS2Config(false)
   }
 
   const handleClearFiles = () => {
@@ -460,6 +602,14 @@ const App: React.FC = () => {
           file={editingFile.file}
           onSave={handleSaveEdit}
           onCancel={handleCancelEdit}
+        />
+      )}
+
+      {/* Modal for PS2 configuration */}
+      {showPS2Config && (
+        <PS2ConfigModal
+          onSave={handlePS2ConfigSave}
+          onCancel={handlePS2ConfigCancel}
         />
       )}
     </div>

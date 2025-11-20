@@ -37,10 +37,20 @@ export interface ParseResult {
 
 export type ExportFormat = 'SEPA' | 'PS2'
 
+export interface PS2Config {
+  debtorNIB: string
+  executionDate: string
+}
+
 export interface ElectronAPI {
   selectPdfFiles: () => Promise<string[]>
   parsePdfFile: (filePath: string) => Promise<ParseResult>
-  generateAndSaveSepa: (payments: PaymentData[], defaultFileName: string, format?: ExportFormat) => Promise<{ success: boolean; filePath?: string; error?: string }>
+  generateAndSaveSepa: (
+    payments: PaymentData[],
+    defaultFileName: string,
+    format?: ExportFormat,
+    ps2Config?: PS2Config
+  ) => Promise<{ success: boolean; filePath?: string; error?: string }>
   getAppVersion: () => Promise<string>
   openLogFile: () => Promise<{ success: boolean; path: string }>
   getLogPath: () => Promise<string>

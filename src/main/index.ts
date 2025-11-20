@@ -381,40 +381,60 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
     const referenceMatch3 = text.match(/Refer[êe]ncia\s+para\s+pagamento[\s\S]*?([\d\s.]{15,25})/i)
     // Fallback pattern: Look for any sequence that looks like a reference (digits with dots/spaces, 15+ chars)
     const referenceMatch4 = text.match(/(\d{2,3}[.\s]\d{2,3}[.\s]\d{2,3}[.\s]\d{2,3}[.\s]\d{2,3})/i)
+    // IVA layout: Extract from "Linha Óptica" - format: 62 10210003 6 9 12533167452 0781
+    // The reference is the 11-digit number in the middle (after the check digit 9)
+    const linhaOpticaMatch = text.match(/Linha\s+[ÓO]ptica[\s\S]*?62\s+\d{8}\s+\d\s+\d\s+(\d{11})\s+\d{4}/i)
+    // Alternative IVA pattern: Look for standalone barcode-like number sequence
+    const ivaReferenceMatch = text.match(/62\s*10210003\s*6\s*9\s*(\d{11})\s*\d{4}/i)
 
     let paymentReference = ''
+    let referenceSource = ''
     if (referenceMatch) {
       paymentReference = referenceMatch[1].replace(/[\s.]/g, '').trim()
+      referenceSource = 'with separators'
     } else if (referenceMatch2) {
       paymentReference = referenceMatch2[1]
+      referenceSource = '15 consecutive digits'
     } else if (referenceMatch3) {
       // Clean and extract only digits
       paymentReference = referenceMatch3[1].replace(/[^\d]/g, '').trim()
+      referenceSource = 'Referência para pagamento'
     } else if (referenceMatch4) {
       paymentReference = referenceMatch4[1].replace(/[\s.]/g, '').trim()
+      referenceSource = 'flexible separators'
+    } else if (linhaOpticaMatch) {
+      // IVA format: 11-digit reference, pad to 15 with leading zeros
+      paymentReference = linhaOpticaMatch[1].padStart(15, '0')
+      referenceSource = 'Linha Óptica (IVA)'
+    } else if (ivaReferenceMatch) {
+      // IVA format: 11-digit reference from barcode-like sequence
+      paymentReference = ivaReferenceMatch[1].padStart(15, '0')
+      referenceSource = 'IVA barcode'
     }
 
     // Ensure we have exactly 15 digits
     if (paymentReference && paymentReference.length !== 15) {
       paymentReference = ''  // Invalid reference, clear it
+      referenceSource = 'invalid length'
     }
     await logger.info('Extraction: Payment reference', {
-      found: !!(referenceMatch || referenceMatch2 || referenceMatch3 || referenceMatch4),
-      rawMatch: referenceMatch ? referenceMatch[1] : referenceMatch2 ? referenceMatch2[1] : referenceMatch3 ? referenceMatch3[1] : referenceMatch4 ? referenceMatch4[1] : '(não encontrado)',
+      found: !!paymentReference,
+      rawMatch: referenceMatch ? referenceMatch[1] : referenceMatch2 ? referenceMatch2[1] : referenceMatch3 ? referenceMatch3[1] : referenceMatch4 ? referenceMatch4[1] : linhaOpticaMatch ? linhaOpticaMatch[1] : ivaReferenceMatch ? ivaReferenceMatch[1] : '(não encontrado)',
       cleanedValue: paymentReference || '(não encontrado)',
-      expectedFormat: 'XXX.XXX.XXX.XXX.XXX',
-      patternUsed: referenceMatch ? 'with separators' : referenceMatch2 ? '15 consecutive digits' : referenceMatch3 ? 'Referência para pagamento' : referenceMatch4 ? 'Referência label' : 'none'
+      expectedFormat: 'XXX.XXX.XXX.XXX.XXX or IVA 11-digit',
+      patternUsed: referenceSource
     })
 
     // Extract entity
     const entity = paymentReference.substring(0, 3)
 
-    // Extract amount (appears as "€ 110,40" or "VALOR A PAGAR 110,40")
+    // Extract amount (appears as "€ 110,40" or "VALOR A PAGAR 110,40" or "Total a Pagar")
     const amountPattern1 = text.match(/VALOR A PAGAR\s+([\d.,]+)/i)
     const amountPattern2 = text.match(/Importância a pagar[\s\S]*?€\s*([\d.,]+)/i)
     const amountPattern3 = text.match(/€\s*([\d.,]+)/i)
     const amountPattern4 = text.match(/Total\s*:?\s*€?\s*([\d.,]+)/i)
-    const amountMatch = amountPattern1 || amountPattern2 || amountPattern3 || amountPattern4
+    const amountPattern5 = text.match(/Total\s+a\s+Pagar[\s\S]*?€\s*([\d.,]+)/i)
+    const amountMatch = amountPattern1 || amountPattern2 || amountPattern5 || amountPattern3 || amountPattern4
     let amount = 0
     if (amountMatch) {
       const amountStr = amountMatch[1].replace(/\./g, '').replace(',', '.')
@@ -424,7 +444,7 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
       found: !!amountMatch,
       rawMatch: amountMatch ? amountMatch[1] : '(não encontrado)',
       parsedValue: amount,
-      patternUsed: amountPattern1 ? 'VALOR A PAGAR' : amountPattern2 ? 'Importância €' : amountPattern3 ? '€' : amountPattern4 ? 'Total' : 'none'
+      patternUsed: amountPattern1 ? 'VALOR A PAGAR' : amountPattern2 ? 'Importância €' : amountPattern5 ? 'Total a Pagar (IVA)' : amountPattern3 ? '€' : amountPattern4 ? 'Total' : 'none'
     })
 
     // Extract due date
@@ -440,8 +460,9 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
     const taxCodeMatch = text.match(/C[óo]digo\s+do\s+imposto\s*:?\s*(\d{3})/i)
     const taxCode = taxCodeMatch ? taxCodeMatch[1] : ''
 
-    // Extract period
-    const periodMatch = text.match(/Per[íi]odo\s*:?\s*(\d{4}\s*[\/\-]\s*\w+)/i)
+    // Extract period (handles "2025 / 09T" for IVA and "2025 / 3T" for other taxes)
+    const periodMatch = text.match(/Per[íi]odo\s*:?\s*(\d{4}\s*[\/\-]\s*\w+)/i) ||
+                       text.match(/PERÍODO[\s\S]*?(\d{4}\s*[\/\-]\s*\d+T?)/i)
     const period = periodMatch ? periodMatch[1].trim() : ''
 
     // Check for missing essential fields
@@ -509,15 +530,19 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
   }
 })
 
-ipcMain.handle('generate-and-save-sepa', async (_event, payments: PaymentData[], defaultFileName: string, format: ExportFormat = 'SEPA') => {
+ipcMain.handle('generate-and-save-sepa', async (_event, payments: PaymentData[], defaultFileName: string, format: ExportFormat = 'SEPA', ps2Config?: { debtorNIB: string; executionDate: string }) => {
   try {
     let content: string
     let fileExtension: string
     let fileTypeName: string
 
     if (format === 'PS2') {
-      // Generate PS2 format
-      content = generatePS2(payments)
+      // Generate PS2 format with configuration
+      const config = ps2Config ? {
+        debtorNIB: ps2Config.debtorNIB,
+        executionDate: new Date(ps2Config.executionDate)
+      } : {}
+      content = generatePS2(payments, config)
       fileExtension = 'txt'
       fileTypeName = 'Text Files'
     } else {

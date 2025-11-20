@@ -437,3 +437,17 @@ body {
 .btn-secondary:hover {
   background: #e2e8f0;
 }
+
+/* Full-width form group */
+.form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+/* Form help text */
+.form-help {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #718096;
+  font-style: italic;
+}
