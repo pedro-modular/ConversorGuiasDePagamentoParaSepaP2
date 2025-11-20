@@ -3,6 +3,7 @@ import { PaymentData } from '../shared/types'
 interface PS2Config {
   debtorName?: string
   debtorNIF?: string
+  debtorNIB?: string  // Portuguese bank account number (21 digits)
   executionDate?: Date
 }
 
@@ -25,6 +26,17 @@ export function generatePS2(payments: PaymentData[], config: PS2Config = {}): st
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     return `${year}${month}${day}`
+  }
+
+  // Format NIB (Portuguese bank account - 21 digits)
+  const formatNIB = (nib: string | undefined): string => {
+    if (!nib) {
+      // Default/placeholder NIB if not provided
+      return '000000000000000000000'
+    }
+    // Remove any spaces or special characters and pad/truncate to 21 digits
+    const cleanNIB = nib.replace(/\s/g, '')
+    return cleanNIB.substring(0, 21).padEnd(21, '0')
   }
 
   // Convert amount to cents and pad to 40 digits (PS2 standard)
@@ -60,17 +72,16 @@ export function generatePS2(payments: PaymentData[], config: PS2Config = {}): st
   const numberOfTransactions = payments.length
 
   // Header format (80 bytes total):
-  // PS21 (4) + entity (3: 247) + zeros (27) + txn count (5) + date (8) + EUR (3) + exec date (8) + spaces (6) + zeros (16)
+  // PS21 (4) + entity (2: 47) + NIB (21) + zeros (15) + txn count (5) + EUR (3) + date (8) + zeros (22)
   const header = [
     'PS21',                                           // 4 bytes - Record type
-    '247',                                            // 3 bytes - Entity code for tax payments
-    '0'.repeat(27),                                   // 27 bytes - Zeros
+    '47',                                             // 2 bytes - Entity code for tax payments
+    formatNIB(config.debtorNIB),                      // 21 bytes - Ordering account NIB
+    '0'.repeat(15),                                   // 15 bytes - Zeros
     String(numberOfTransactions).padStart(5, '0'),    // 5 bytes - Number of transactions
-    formatDate(now),                                  // 8 bytes - Creation date (YYYYMMDD)
     'EUR',                                            // 3 bytes - Currency
     formatDate(executionDate),                        // 8 bytes - Execution date (YYYYMMDD)
-    ' '.repeat(6),                                    // 6 bytes - Spaces
-    '0'.repeat(16)                                    // 16 bytes - Zeros
+    '0'.repeat(22)                                    // 22 bytes - Zeros
   ].join('')
 
   lines.push(header)
@@ -92,11 +103,11 @@ export function generatePS2(payments: PaymentData[], config: PS2Config = {}): st
 
   // PS29 - Footer Record (80 bytes)
   // Footer format (80 bytes total):
-  // PS29 (4) + entity (3: 247) + zeros (27) + txn count (8) + total cents (17) + zeros (21)
+  // PS29 (4) + entity (2: 47) + zeros (28) + txn count (8) + total cents (17) + zeros (21)
   const footer = [
     'PS29',                                           // 4 bytes - Record type
-    '247',                                            // 3 bytes - Entity code
-    '0'.repeat(27),                                   // 27 bytes - Zeros
+    '47',                                             // 2 bytes - Entity code
+    '0'.repeat(28),                                   // 28 bytes - Zeros (one more byte than header due to 2-digit entity)
     String(numberOfTransactions).padStart(8, '0'),    // 8 bytes - Number of transactions
     String(totalCents).padStart(17, '0'),             // 17 bytes - Total amount in cents
     '0'.repeat(21)                                    // 21 bytes - Zeros
