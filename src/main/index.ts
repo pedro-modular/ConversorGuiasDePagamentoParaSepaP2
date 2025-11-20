@@ -428,13 +428,21 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
     // Extract entity
     const entity = paymentReference.substring(0, 3)
 
-    // Extract amount (appears as "€ 110,40" or "VALOR A PAGAR 110,40" or "Total a Pagar")
+    // Extract amount (appears as "€ 110,40" or "VALOR A PAGAR 110,40" or "Total a Pagar" or "3,00 €")
+    // Patterns are tried in order of specificity (most specific first)
     const amountPattern1 = text.match(/VALOR A PAGAR\s+([\d.,]+)/i)
     const amountPattern2 = text.match(/Importância a pagar[\s\S]*?€\s*([\d.,]+)/i)
-    const amountPattern3 = text.match(/€\s*([\d.,]+)/i)
+    // IRS format: "IMPORTÂNCIA A PAGAR" followed by amount with € after
+    const amountPattern7 = text.match(/IMPORT[ÂA]NCIA\s+A\s+PAGAR[\s\n\r]+([\d.,]+)\s*€?/i)
+    // Alternative: amount BEFORE € symbol (e.g., "3,00 €")
+    const amountPattern8 = text.match(/([\d.,]+)\s*€/i)
+    // IVA specific patterns (handle line breaks between "Total a Pagar" and amount)
+    const amountPattern5 = text.match(/Total\s+a\s+Pagar[\s\S]{0,100}€\s*([\d.,]+)/i)
+    const amountPattern6 = text.match(/Total\s+a\s+Pagar[\s\n\r]*€?\s*([\d.,]+)/i)
     const amountPattern4 = text.match(/Total\s*:?\s*€?\s*([\d.,]+)/i)
-    const amountPattern5 = text.match(/Total\s+a\s+Pagar[\s\S]*?€\s*([\d.,]+)/i)
-    const amountMatch = amountPattern1 || amountPattern2 || amountPattern5 || amountPattern3 || amountPattern4
+    const amountPattern3 = text.match(/€\s*([\d.,]+)/i)
+    // Try patterns in order of specificity (most specific first to avoid false positives)
+    const amountMatch = amountPattern1 || amountPattern2 || amountPattern7 || amountPattern5 || amountPattern6 || amountPattern4 || amountPattern8 || amountPattern3
     let amount = 0
     if (amountMatch) {
       const amountStr = amountMatch[1].replace(/\./g, '').replace(',', '.')
@@ -444,7 +452,7 @@ ipcMain.handle('parse-pdf-file', async (_event, filePath: string) => {
       found: !!amountMatch,
       rawMatch: amountMatch ? amountMatch[1] : '(não encontrado)',
       parsedValue: amount,
-      patternUsed: amountPattern1 ? 'VALOR A PAGAR' : amountPattern2 ? 'Importância €' : amountPattern5 ? 'Total a Pagar (IVA)' : amountPattern3 ? '€' : amountPattern4 ? 'Total' : 'none'
+      patternUsed: amountPattern1 ? 'VALOR A PAGAR' : amountPattern2 ? 'Importância €' : amountPattern7 ? 'IMPORTÂNCIA A PAGAR (IRS)' : amountPattern5 ? 'Total a Pagar (IVA) flexible' : amountPattern6 ? 'Total a Pagar (IVA) direct' : amountPattern4 ? 'Total' : amountPattern8 ? 'amount € (reversed)' : amountPattern3 ? '€ (generic)' : 'none'
     })
 
     // Extract due date
